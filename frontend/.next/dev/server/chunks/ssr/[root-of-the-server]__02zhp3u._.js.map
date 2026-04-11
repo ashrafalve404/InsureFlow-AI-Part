@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 10, "column": 0}, "map": {"version":3,"sources":["file:///Users/ashraf/Downloads/Ashraf%20Project/InsureFlowAi/frontend/components/providers.tsx"],"sourcesContent":["\"use client\";\n\nimport { useEffect } from \"react\";\n\nexport function Providers({ children }: { children: React.ReactNode }) {\n  useEffect(() => {\n    const root = document.documentElement;\n    const stored = localStorage.getItem(\"theme\");\n    if (stored === \"dark\" || (!stored && window.matchMedia(\"(prefers-color-scheme: dark)\").matches)) {\n      root.classList.add(\"dark\");\n    }\n  }, []);\n\n  return <>{children}</>;\n}"],"names":["Providers","children","root","document","documentElement","stored","localStorage","getItem","window","matchMedia","matches","classList","add"],"mappings":";;;;;AAEA;AAFA;;;AAIO,SAASA,UAAU,EAAEC,QAAQ,EAAiC;IACnE,IAAA,kNAAS,EAAC;QACR,MAAMC,OAAOC,SAASC,eAAe;QACrC,MAAMC,SAASC,aAAaC,OAAO,CAAC;QACpC,IAAIF,WAAW,UAAW,CAACA,UAAUG,OAAOC,UAAU,CAAC,gCAAgCC,OAAO,EAAG;YAC/FR,KAAKS,SAAS,CAACC,GAAG,CAAC;QACrB;IACF,GAAG,EAAE;IAEL,qBAAO;kBAAGX;;AACZ"}}]
+}

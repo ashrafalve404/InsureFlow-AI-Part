@@ -1,0 +1,11 @@
+{
+  "/dashboard/alerts/page": "app/dashboard/alerts/page.js",
+  "/dashboard/calls/[id]/page": "app/dashboard/calls/[id]/page.js",
+  "/dashboard/calls/page": "app/dashboard/calls/page.js",
+  "/dashboard/crm/page": "app/dashboard/crm/page.js",
+  "/dashboard/demo/page": "app/dashboard/demo/page.js",
+  "/dashboard/knowledge/page": "app/dashboard/knowledge/page.js",
+  "/dashboard/live/page": "app/dashboard/live/page.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/dashboard/settings/page": "app/dashboard/settings/page.js"
+}
