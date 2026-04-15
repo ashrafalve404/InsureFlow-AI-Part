@@ -10,13 +10,12 @@ import {
   BookOpen, 
   AlertTriangle, 
   Settings,
-  Play,
   Activity,
-  Headphones,
   Moon,
   Sun,
   Menu,
-  X
+  X,
+  Headphones
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -31,7 +30,6 @@ const navigation = [
 ];
 
 const secondaryNav = [
-  { name: "Demo Mode", href: "/dashboard/demo", icon: Play },
 ];
 
 export function DashboardLayout({ children, pathname }: { children: React.ReactNode; pathname?: string }) {
@@ -106,27 +104,8 @@ export function DashboardLayout({ children, pathname }: { children: React.ReactN
           
           <div className="pt-4 mt-4 border-t border-border">
             <p className="px-3 pb-2 text-xs font-medium text-muted-foreground uppercase">
-              Testing
+              Settings
             </p>
-            {secondaryNav.map((item) => {
-              const isActive = pathname === item.href;
-              return (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  onClick={() => setSidebarOpen(false)}
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                    isActive
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  )}
-                >
-                  <item.icon className="w-5 h-5 shrink-0" />
-                  <span className="truncate">{item.name}</span>
-                </Link>
-              );
-            })}
           </div>
         </nav>
 

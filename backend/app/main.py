@@ -53,6 +53,9 @@ def create_app() -> FastAPI:
     app.include_router(rag.router, prefix=settings.API_V1_PREFIX)
     app.include_router(crm.router, prefix=settings.API_V1_PREFIX)
 
+    # Add Twilio media stream WebSocket (must be added without prefix)
+    app.add_api_websocket_route("/api/v1/twilio/media-stream", twilio.twilio_media_stream)
+
     return app
 
 

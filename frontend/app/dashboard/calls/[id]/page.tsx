@@ -1,10 +1,11 @@
 "use client";
 
 import { use } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { mockSessions, mockTranscripts, mockSuggestions, mockCRMContact } from "@/lib/mock-data";
+import { getCall, getTranscripts, getSuggestions, lookupContactByPhone } from "@/lib/api";
 import { formatRelativeTime, formatTime, cn, generateInitials } from "@/lib/utils";
+import { CallSession, TranscriptChunk, AISuggestion, CRMContact, PostCallSummary } from "@/lib/types";
 import Link from "next/link";
 import { 
   Phone, 
@@ -23,12 +24,56 @@ export default function CallDetailPage({ params }: { params: Promise<{ id: strin
   const sessionId = parseInt(resolvedParams.id);
   const pathname = "/dashboard/calls";
   
-  const session = mockSessions.find(s => s.id === sessionId);
-  const transcripts = mockTranscripts[sessionId] || [];
-  const suggestions = mockSuggestions[sessionId] || [];
-  const crmContact = sessionId === 1 ? mockCRMContact : null;
+  const [session, setSession] = useState<CallSession | null>(null);
+  const [transcripts, setTranscripts] = useState<TranscriptChunk[]>([]);
+  const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
+  const [crmContact, setCrmContact] = useState<CRMContact | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  if (!session) {
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const [sessionData, transcriptData, suggestionData] = await Promise.all([
+          getCall(sessionId),
+          getTranscripts(sessionId),
+          getSuggestions(sessionId),
+        ]);
+        setSession(sessionData);
+        setTranscripts(transcriptData);
+        setSuggestions(suggestionData);
+        
+        if (sessionData.customer_phone) {
+          try {
+            const crm = await lookupContactByPhone(sessionData.customer_phone);
+            if (crm.contact_found) {
+              setCrmContact(crm);
+            }
+          } catch (e) {
+            console.log("No CRM contact found");
+          }
+        }
+      } catch (err) {
+        setError("Failed to load session data");
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchData();
+  }, [sessionId]);
+
+  if (loading) {
+    return (
+      <DashboardLayout pathname={pathname}>
+        <div className="flex items-center justify-center py-12">
+          <div className="text-muted-foreground">Loading...</div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (error || !session) {
     return (
       <DashboardLayout pathname={pathname}>
         <div className="text-center py-12">

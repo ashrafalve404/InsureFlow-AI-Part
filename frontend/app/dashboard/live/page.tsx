@@ -1,14 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, use } from "react";
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { 
-  mockSessions, 
-  mockTranscripts, 
-  mockSuggestions,
-  mockCRMContact 
-} from "@/lib/mock-data";
+import { getCall, getTranscripts, getSuggestions, lookupContactByPhone, startCall } from "@/lib/api";
 import { cn, formatTime, generateInitials } from "@/lib/utils";
+import { CallSession, TranscriptChunk, AISuggestion, CRMContact } from "@/lib/types";
 import { 
   Phone, 
   User, 
@@ -25,17 +23,59 @@ import {
   Menu
 } from "lucide-react";
 
-export default function LiveCallPage() {
-  const [sessionId, setSessionId] = useState(1);
+function LiveCallContent() {
+  const searchParams = useSearchParams();
+  const sessionIdFromUrl = searchParams.get("id");
+  const initialSessionId = sessionIdFromUrl ? parseInt(sessionIdFromUrl) : null;
+  
+  const [sessionId, setSessionId] = useState<number | null>(initialSessionId);
+  const [session, setSession] = useState<CallSession | null>(null);
+  const [transcripts, setTranscripts] = useState<TranscriptChunk[]>([]);
+  const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
+  const [crmContact, setCrmContact] = useState<CRMContact | null>(null);
+  const [loading, setLoading] = useState(!!initialSessionId);
   const [manualInput, setManualInput] = useState("");
   const [activePanel, setActivePanel] = useState<"transcript" | "ai" | "crm">("transcript");
-  
-  const session = mockSessions.find(s => s.id === sessionId);
-  const transcripts = mockTranscripts[sessionId] || [];
-  const suggestions = mockSuggestions[sessionId] || [];
-  const crmContact = sessionId === 1 ? mockCRMContact : null;
 
-  const latestSuggestion = suggestions[suggestions.length - 1];
+  useEffect(() => {
+    if (!sessionId) {
+      setLoading(false);
+      return;
+    }
+    
+    async function fetchData() {
+      setLoading(true);
+      try {
+        const sessionNum = sessionId as number;
+        const [sessionData, transcriptData, suggestionData] = await Promise.all([
+          getCall(sessionNum),
+          getTranscripts(sessionNum),
+          getSuggestions(sessionNum),
+        ]);
+        setSession(sessionData);
+        setTranscripts(transcriptData);
+        setSuggestions(suggestionData);
+        
+        if (sessionData.customer_phone) {
+          try {
+            const crm = await lookupContactByPhone(sessionData.customer_phone);
+            if (crm.contact_found) {
+              setCrmContact(crm);
+            }
+          } catch (e) {
+            console.log("No CRM contact found");
+          }
+        }
+      } catch (error) {
+        console.error("Failed to fetch session data:", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchData();
+  }, [sessionId]);
+
+  const latestSuggestion = suggestions && suggestions.length > 0 ? suggestions[suggestions.length - 1] : null;
   const callStage = latestSuggestion?.call_stage || "unknown";
 
   const handleManualSubmit = (e: React.FormEvent) => {
@@ -95,30 +135,47 @@ export default function LiveCallPage() {
         )}>
           {/* Session Header */}
           <div className="p-3 lg:p-4 border-b border-border">
-            <div className="flex items-center gap-2 lg:gap-3">
-              <div className="w-8 lg:w-10 h-8 lg:h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                <Phone className="w-4 lg:w-5 h-4 lg:h-5 text-primary" />
+            {loading ? (
+              <div className="animate-pulse">
+                <div className="h-4 bg-muted rounded w-1/3 mb-2"></div>
+                <div className="h-3 bg-muted rounded w-1/2"></div>
               </div>
-              <div className="min-w-0">
-                <h2 className="font-semibold text-sm lg:text-base truncate">{session?.customer_name}</h2>
-                <p className="text-xs lg:text-sm text-muted-foreground">{session?.customer_phone}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 mt-2 lg:mt-3 flex-wrap">
-              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-emerald-600/10 text-emerald-600">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
-                Live
-              </span>
-              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-muted">
-                <Clock className="w-3 h-3" />
-                {callStage}
-              </span>
-            </div>
+            ) : session ? (
+              <>
+                <div className="flex items-center gap-2 lg:gap-3">
+                  <div className="w-8 lg:w-10 h-8 lg:h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                    <Phone className="w-4 lg:w-5 h-4 lg:h-5 text-primary" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="font-semibold text-sm lg:text-base truncate">{session.customer_name}</h2>
+                    <p className="text-xs lg:text-sm text-muted-foreground">{session.customer_phone}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 mt-2 lg:mt-3 flex-wrap">
+                  <span className={session.status === "active" ? "inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-emerald-600/10 text-emerald-600" : "inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-muted"}>
+                    {session.status === "active" && <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />}
+                    {session.status === "active" ? "Live" : session.status}
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-muted">
+                    <Clock className="w-3 h-3" />
+                    {callStage}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div className="text-muted-foreground">No session selected</div>
+            )}
           </div>
 
           {/* Transcript Stream */}
           <div className="flex-1 overflow-y-auto p-3 lg:p-4 space-y-3 lg:space-y-4">
-            {transcripts.map((chunk) => (
+            {loading ? (
+              <div className="text-center py-8 text-muted-foreground">Loading...</div>
+            ) : !transcripts || transcripts.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">No transcripts yet. Start a call to see live transcripts.</div>
+            ) : (
+              <>
+                {transcripts.map((chunk) => (
               <div
                 key={chunk.id}
                 className={cn(
@@ -146,7 +203,9 @@ export default function LiveCallPage() {
                   {chunk.text}
                 </div>
               </div>
-            ))}
+              ))}
+              </>
+            )}
           </div>
 
           {/* Manual Input */}
@@ -296,7 +355,9 @@ export default function LiveCallPage() {
           <div className="flex-1 overflow-y-auto p-3 lg:p-4">
             <h3 className="font-semibold text-sm mb-2 lg:mb-3">Previous Suggestions</h3>
             <div className="space-y-2">
-              {suggestions.slice(0, -1).map((suggestion, i) => (
+              {suggestions && suggestions.length > 1 ? (
+                <>
+                  {suggestions.slice(0, -1).map((suggestion, i) => (
                 <div 
                   key={i}
                   className="p-2 lg:p-3 rounded-xl bg-muted/30 hover:bg-muted/50 cursor-pointer transition-colors"
@@ -310,10 +371,28 @@ export default function LiveCallPage() {
                   </div>
                 </div>
               ))}
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">No previous suggestions</p>
+              )}
             </div>
           </div>
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function LiveCallPage() {
+  return (
+    <Suspense fallback={
+      <DashboardLayout pathname="/dashboard/live">
+        <div className="flex items-center justify-center h-full">
+          <div className="text-muted-foreground">Loading...</div>
+        </div>
+      </DashboardLayout>
+    }>
+      <LiveCallContent />
+    </Suspense>
   );
 }

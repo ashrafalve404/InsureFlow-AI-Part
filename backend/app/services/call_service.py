@@ -35,6 +35,31 @@ async def create_session(data: StartCallRequest, db: AsyncSession) -> CallSessio
     return session
 
 
+async def create_session(
+    call_sid: str,
+    agent_name: str,
+    customer_phone: str,
+    db: AsyncSession,
+    customer_name: str = "Unknown",
+) -> CallSession:
+    """Create a session from Twilio webhook (minimal info)."""
+    now = utcnow_naive()
+    session = CallSession(
+        call_sid=call_sid,
+        agent_name=agent_name,
+        customer_name=customer_name,
+        customer_phone=customer_phone,
+        status=CallStatus.ACTIVE,
+        started_at=now,
+        created_at=now,
+    )
+    db.add(session)
+    await db.commit()
+    await db.refresh(session)
+    logger.info("CallSession created from Twilio | id=%s call_sid=%s", session.id, call_sid)
+    return session
+
+
 async def get_session(session_id: int, db: AsyncSession) -> Optional[CallSession]:
     """Fetch a single call session by primary key."""
     result = await db.execute(

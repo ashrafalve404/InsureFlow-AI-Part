@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     GHL_LOCATION_ID: str = ""
     GHL_API_VERSION: str = "2021-07-28"
 
+    # ── Deepgram Configuration ───────────────────────────────────────────────────────
+    DEEPGRAM_API_KEY: str = ""
+    MEDIA_STREAM_URL: str = ""
+    SALES_PERSON_NUMBER: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

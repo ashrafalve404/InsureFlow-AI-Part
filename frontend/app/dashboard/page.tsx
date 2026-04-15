@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { mockSessions, mockDashboardStats } from "@/lib/mock-data";
+import { getDashboardStats, getCalls } from "@/lib/api";
 import { formatRelativeTime, cn } from "@/lib/utils";
+import { CallSession, DashboardStats as DashboardStatsType } from "@/lib/types";
 import Link from "next/link";
 import { 
   Phone, 
@@ -14,41 +16,62 @@ import {
   Play
 } from "lucide-react";
 
-const stats = [
+export default function DashboardPage() {
+  const pathname = "/dashboard";
+  const [stats, setStats] = useState<DashboardStatsType | null>(null);
+  const [sessions, setSessions] = useState<CallSession[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const statsConfig = stats ? [
   {
     name: "Active Calls",
-    value: mockDashboardStats.active_calls,
+    value: stats.active_calls,
     icon: Phone,
     color: "text-primary",
     bg: "bg-primary/10",
   },
   {
     name: "Sessions Today",
-    value: mockDashboardStats.total_sessions_today,
+    value: stats.total_sessions_today,
     icon: TrendingUp,
     color: "text-emerald-600",
     bg: "bg-emerald-600/10",
   },
   {
     name: "Objections Today",
-    value: mockDashboardStats.objections_flagged_today,
+    value: stats.objections_flagged_today,
     icon: AlertTriangle,
     color: "text-amber-600",
     bg: "bg-amber-600/10",
   },
   {
     name: "Compliance Alerts",
-    value: mockDashboardStats.compliance_alerts_today,
+    value: stats.compliance_alerts_today,
     icon: Shield,
     color: "text-red-600",
     bg: "bg-red-600/10",
   },
-];
+] : [];
 
-export default function DashboardPage() {
-  const pathname = "/dashboard";
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const [statsData, callsData] = await Promise.all([
+          getDashboardStats(),
+          getCalls(0, 10),
+        ]);
+        setStats(statsData);
+        setSessions(callsData.sessions);
+      } catch (error) {
+        console.error("Failed to fetch dashboard data:", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchData();
+  }, []);
   
-  const activeSessions = mockSessions.filter(s => s.status === "active");
+  const activeSessions = sessions.filter(s => s.status === "active");
   
   return (
     <DashboardLayout pathname={pathname}>
@@ -72,8 +95,18 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mb-6 lg:mb-8">
-        {stats.map((stat) => (
+      {loading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mb-6 lg:mb-8">
+          {[1,2,3,4].map(i => (
+            <div key={i} className="p-4 lg:p-6 rounded-xl lg:rounded-2xl border border-border bg-card animate-pulse">
+              <div className="h-4 bg-muted rounded w-1/2 mb-4"></div>
+              <div className="h-8 bg-muted rounded w-1/3"></div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mb-6 lg:mb-8">
+          {statsConfig?.map((stat) => (
           <div
             key={stat.name}
             className={cn(
@@ -92,7 +125,8 @@ export default function DashboardPage() {
             <p className="text-2xl lg:text-3xl font-semibold">{stat.value}</p>
           </div>
         ))}
-      </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
         {/* Active Calls */}
@@ -107,7 +141,7 @@ export default function DashboardPage() {
             </Link>
           </div>
           
-          {activeSessions.length === 0 ? (
+          {activeSessions.length === 0 && !loading ? (
             <div className="py-8 lg:py-12 text-center">
               <Phone className="w-10 h-10 lg:w-12 lg:h-12 mx-auto text-muted-foreground/50 mb-3" />
               <p className="text-muted-foreground mb-2">No active calls</p>
@@ -164,7 +198,9 @@ export default function DashboardPage() {
           </div>
           
           <div className="space-y-3 lg:space-y-4">
-            {mockSessions.slice(0, 5).map((session) => (
+            {sessions && sessions.length > 0 ? (
+              <>
+                {sessions.slice(0, 5).map((session) => (
               <Link
                 key={session.id}
                 href={`/dashboard/calls/${session.id}`}
@@ -193,7 +229,11 @@ export default function DashboardPage() {
                   </p>
                 </div>
               </Link>
-            ))}
+              ))}
+              </>
+            ) : (
+              <p className="text-muted-foreground text-sm">No recent sessions</p>
+            )}
           </div>
         </div>
       </div>

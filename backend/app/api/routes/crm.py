@@ -38,10 +38,10 @@ async def lookup_by_phone(
     Look up a CRM contact by phone number.
     """
     if not settings.CRM_ENABLED:
-        raise HTTPException(detail="CRM is disabled")
+        return CRMContactResponse(contact_found=False)
     
     if not settings.GHL_PRIVATE_INTEGRATION_TOKEN:
-        raise HTTPException(detail="GHL token not configured")
+        return CRMContactResponse(contact_found=False)
     
     try:
         contact = await crm_service.lookup_contact_by_phone(phone)
@@ -62,7 +62,7 @@ async def lookup_by_phone(
         )
     except Exception as exc:
         logger.error("CRM lookup failed: %s", exc)
-        raise HTTPException(detail=f"CRM lookup failed: {str(exc)}")
+        return CRMContactResponse(contact_found=False)
 
 
 @router.get("/contact/by-email", response_model=CRMContactResponse)
@@ -73,10 +73,10 @@ async def lookup_by_email(
     Look up a CRM contact by email.
     """
     if not settings.CRM_ENABLED:
-        raise HTTPException(detail="CRM is disabled")
+        return CRMContactResponse(contact_found=False)
     
     if not settings.GHL_PRIVATE_INTEGRATION_TOKEN:
-        raise HTTPException(detail="GHL token not configured")
+        return CRMContactResponse(contact_found=False)
     
     try:
         contact = await crm_service.lookup_contact_by_email(email)
@@ -97,4 +97,4 @@ async def lookup_by_email(
         )
     except Exception as exc:
         logger.error("CRM lookup failed: %s", exc)
-        raise HTTPException(detail=f"CRM lookup failed: {str(exc)}")
+        return CRMContactResponse(contact_found=False)
