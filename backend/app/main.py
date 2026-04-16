@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import WebSocket
 
 from app.api.routes import calls, health, sessions, suggestions, twilio, websocket, rag, crm
 from app.core.config import settings
@@ -53,8 +54,15 @@ def create_app() -> FastAPI:
     app.include_router(rag.router, prefix=settings.API_V1_PREFIX)
     app.include_router(crm.router, prefix=settings.API_V1_PREFIX)
 
-    # Add Twilio media stream WebSocket (must be added without prefix)
-    app.add_api_websocket_route("/api/v1/twilio/media-stream", twilio.twilio_media_stream)
+    # Add Twilio media stream WebSocket at root level (no API prefix)
+    @app.websocket("/twilio-media-stream")
+    async def twilio_ws(ws: WebSocket):
+        # Extract query parameters
+        call_sid = ws.query_params.get("call_sid")
+        session_id = ws.query_params.get("session_id")
+        if session_id:
+            session_id = int(session_id)
+        await twilio.twilio_media_stream_websocket(ws, call_sid=call_sid, session_id=session_id)
 
     return app
 
