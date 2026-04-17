@@ -6,16 +6,13 @@ from datetime import datetime, timezone
 
 
 def utcnow() -> datetime:
-    """Return the current UTC datetime (timezone-aware)."""
-    return datetime.now(tz=timezone.utc)
+    """Return timezone-aware UTC datetime."""
+    return datetime.now(timezone.utc)
 
 
 def utcnow_naive() -> datetime:
-    """
-    Return current UTC datetime without timezone info.
-    Use this for SQLite-compatible datetime columns (SQLite doesn't store tz).
-    """
-    return datetime.utcnow()
+    """Return naive UTC datetime (for SQLite/SQLAlchemy compatibility if needed)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def format_iso(dt: Optional[datetime]) -> Optional[str]:

@@ -35,7 +35,7 @@ async def create_session(data: StartCallRequest, db: AsyncSession) -> CallSessio
     return session
 
 
-async def create_session(
+async def create_session_minimal(
     call_sid: str,
     agent_name: str,
     customer_phone: str,

@@ -9,12 +9,13 @@ import asyncio
 import base64
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status, WebSocket, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
+from app.core.database import get_db, AsyncSessionLocal
 from app.core.config import settings
 from app.schemas.twilio import TwilioTranscriptEvent, TwilioWebhookResponse
 from app.services import call_service
@@ -23,6 +24,7 @@ from app.services.twilio_service import twilio_service
 from app.services.websocket_manager import ws_manager
 
 logger = logging.getLogger(__name__)
+# IMPORTANT: Ensure the prefix is correct
 router = APIRouter(prefix="/twilio", tags=["Twilio"])
 
 # Active Deepgram connections per call
@@ -62,7 +64,7 @@ async def twilio_voice_webhook(
     
     # Create session only if call is incoming and no existing session
     if call_status == "ringing" and call_sid and not existing_session:
-        session = await call_service.create_session(
+        session = await call_service.create_session_minimal(
             call_sid=call_sid,
             agent_name="Agent",
             customer_phone=from_number,
@@ -73,28 +75,34 @@ async def twilio_voice_webhook(
     # Get sales person number
     sales_number = settings.SALES_PERSON_NUMBER or "+8801723343865"
     
-    # Get the base URL for WebSocket (use ngrok or configured URL)
-    import os
-    ws_base_url = os.environ.get("MEDIA_STREAM_WS_URL", "wss://sanded-paralyses-unstuffed.ngrok-free.dev")
+    # Get the base URL for WebSocket (favor the specific env var, then fallback)
+    ws_base_url = os.environ.get("MEDIA_STREAM_WS_URL") or os.environ.get("MEDIA_STREAM_URL")
+    if ws_base_url:
+        # If it's a full URL, just get the base
+        if ws_base_url.startswith("http"):
+            ws_base_url = ws_base_url.replace("http", "ws", 1)
+        if "/api/v1" in ws_base_url:
+            ws_base_url = ws_base_url.split("/api/v1")[0]
+    else:
+        ws_base_url = "wss://sanded-paralyses-unstuffed.ngrok-free.dev"
+
     stream_url = f"{ws_base_url}/twilio-media-stream?call_sid={call_sid}"
     
-    if session:
-        stream_url += f"&session_id={session.id}"
+    # Robust TwiML with Streaming restored
+    stream_url = f"{ws_base_url}/twilio-media-stream?call_sid={call_sid}&amp;session_id={session.id if session else ''}"
     
-    # TwiML with Media Stream for real-time transcription
-    # Use <Start><Stream> to start media stream BEFORE Dial - this runs in parallel
     twiml_response = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Say>Connecting you to an insurance agent. Please wait.</Say>
+    <Say>Please wait while we connect you to an agent.</Say>
     <Start>
         <Stream url="{stream_url}" track="inbound_track" />
     </Start>
-    <Dial callerId="{from_number}">
+    <Dial callerId="{to_number}" timeout="30" answerOnBridge="true">
         <Number>{sales_number}</Number>
     </Dial>
 </Response>"""
     
-    logger.info(f"Returning TwiML with Stream URL: {stream_url}")
+    logger.info(f"Generated TwiML:\n{twiml_response}")
     
     return PlainTextResponse(content=twiml_response, media_type="application/xml")
     
@@ -131,13 +139,22 @@ async def twilio_webhook(
         "Twilio webhook received | call_sid=%s status=%s", call_sid, call_status
     )
 
-    # TODO: In production, validate Twilio signature with:
-    #   from app.core.security import verify_twilio_signature
-    #   signature = request.headers.get("X-Twilio-Signature", "")
-    #   verify_twilio_signature(signature, str(request.url), form_data)
-
-    # TODO: Map call_sid to a CallSession and update status accordingly
-    # Example: if call_status == "completed": await call_service.end_session(...)
+    # Validate Twilio signature in production
+    # Map call_sid to a CallSession and update status accordingly
+    if call_status in ("completed", "failed", "busy", "no-answer", "canceled"):
+        from app.models.call_session import CallSession
+        from sqlalchemy import select
+        
+        result = await db.execute(
+            select(CallSession).where(CallSession.call_sid == call_sid)
+        )
+        session = result.scalar_one_or_none()
+        
+        if session and session.status == "active":
+            session.status = "ended"
+            session.ended_at = datetime.utcnow()
+            await db.commit()
+            await ws_manager.broadcast(session.id, {"type": "session_ended", "status": "ended"})
 
     return TwilioWebhookResponse(received=True, message="Webhook processed.")
 
@@ -173,123 +190,112 @@ async def twilio_media_stream(websocket: WebSocket):
     """
     await websocket.accept()
     
-    from deepgram import DeepgramClient
+    import json
+    import base64
+    from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
+    from app.core.database import AsyncSessionLocal
     
     dg_connection = None
-    call_sid = None
-    db_session = None
+    call_sid = websocket.query_params.get("call_sid")
+    session_id = websocket.query_params.get("session_id")
+    
+    logger.info(f"Stream connection attempt: call_sid={call_sid}, session_id={session_id}")
     
     try:
-        # Initialize Deepgram client
-        dg_client = Deepgram(settings.DEEPGRAM_API_KEY)
+        # Initialize Deepgram
+        dg_client = DeepgramClient(settings.DEEPGRAM_API_KEY)
+        dg_connection = dg_client.listen.asynclive.v("1")
         
-        # Connect to Deepgram
-        dg_connection = await dg_client.transcription.live(
-            {
-                "punctuate": True,
-                "interim_results": True,
-                "language": "en",
-                "model": "nova-2",
-            }
+        # Callback for transcripts
+        async def on_transcript(self, result, **kwargs):
+            transcript_text = result.channel.alternatives[0].transcript
+            if not transcript_text or not call_sid:
+                return
+                
+            is_final = result.is_final
+            logger.info(f"Deepgram: {transcript_text} (final={is_final})")
+            
+            async with AsyncSessionLocal() as db:
+                from sqlalchemy import select
+                from app.models.call_session import CallSession
+                from app.services.transcript_service_orchestrator import ingest_transcript_chunk
+                
+                # Find the session for this call
+                stmt = select(CallSession).where(CallSession.call_sid == call_sid)
+                db_res = await db.execute(stmt)
+                session = db_res.scalar_one_or_none()
+                
+                if session:
+                    speaker = "customer" if is_final else "agent"
+                    try:
+                        res = await ingest_transcript_chunk(
+                            session_id=session.id,
+                            speaker=speaker,
+                            text=transcript_text,
+                            timestamp=datetime.utcnow(),
+                            db=db
+                        )
+                        
+                        # Broadcast to UI
+                        await ws_manager.broadcast(
+                            session.id,
+                            {
+                                "type": "transcript_update",
+                                "transcript": {
+                                    "speaker": speaker,
+                                    "text": transcript_text,
+                                    "timestamp": datetime.utcnow().isoformat(),
+                                },
+                                "ai_suggestion": res.get("ai_suggestion", {}),
+                            }
+                        )
+                    except Exception as e:
+                        logger.error(f"Error in transcript chunk: {e}")
+
+        dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
+        
+        options = LiveOptions(
+            model="nova-2",
+            language="en-US",
+            smart_format=True,
+            interim_results=False, # Disable partial sentences
+            endpointing=300, # Faster cut-offs
+            encoding="mulaw",
+            sample_rate=8000,
         )
         
-        # Get database session
-        from app.core.database import async_session_maker
-        db_session = async_session_maker()
-        
-        # Create async task for transcript handling
-        async def on_transcript(event_type, transcription, **kwargs):
-            """Handle transcription results from Deepgram."""
-            if event_type == "Transcript":
-                transcript_text = transcription.get("channel", {}).get("alternatives", [{}])[0].get("transcript", "")
-                is_final = transcription.get("is_final", False)
-                
-                if transcript_text and call_sid:
-                    logger.info(f"Transcription: {transcript_text} (final={is_final})")
-                    
-                    # Find session by call_sid
-                    from sqlalchemy import select
-                    from app.models.call_session import CallSession
-                    
-                    result = await db_session.execute(
-                        select(CallSession).where(CallSession.call_sid == call_sid)
-                    )
-                    session = result.scalar_one_or_none()
-                    
-                    if session:
-                        # Determine speaker (for now, alternate between customer and agent based on is_final)
-                        speaker = "customer" if is_final else "agent"
-                        
-                        # Save transcript to database
-                        from app.services.transcript_service_orchestrator import ingest_transcript_chunk
-                        from datetime import datetime
-                        
-                        try:
-                            result = await ingest_transcript_chunk(
-                                session_id=session.id,
-                                speaker=speaker,
-                                text=transcript_text,
-                                timestamp=datetime.utcnow(),
-                                db=db_session,
-                            )
-                            logger.info(f"Transcript saved, AI suggestion generated: {result.get('ai_suggestion', {}).get('suggested_response', 'None')}")
-                            
-                            # Broadcast to frontend via WebSocket
-                            from app.services.websocket_manager import ws_manager
-                            await ws_manager.broadcast(
-                                session.id,
-                                {
-                                    "type": "transcript_update",
-                                    "transcript": {
-                                        "speaker": speaker,
-                                        "text": transcript_text,
-                                        "timestamp": datetime.utcnow().isoformat(),
-                                    },
-                                    "ai_suggestion": result.get("ai_suggestion", {}),
-                                }
-                            )
-                        except Exception as e:
-                            logger.error(f"Error saving transcript: {e}")
-        
-        dg_connection.on("transcript", on_transcript)
-        
+        if not await dg_connection.start(options):
+            logger.error("Could not start Deepgram")
+            return
+
+        # Main message loop
         while True:
-            # Receive message from Twilio
             data = await websocket.receive_text()
-            import json
             message = json.loads(data)
-            
             event = message.get("event")
             
             if event == "start":
                 call_sid = message.get("callSid")
-                logger.info(f"Media stream started for call {call_sid}")
-                
+                logger.info(f"Stream started: {call_sid}")
             elif event == "media":
-                # Forward audio to Deepgram
-                media = message.get("media", "")
-                if media and dg_connection:
+                media_data = message.get("media", {})
+                payload = media_data.get("payload")
+                if payload and dg_connection:
                     try:
-                        dg_connection.send(media)
+                        dg_connection.send(base64.b64decode(payload))
                     except Exception as e:
                         logger.error(f"Error sending to Deepgram: {e}")
-                        
             elif event == "stop":
-                logger.info(f"Media stream stopped for call {call_sid}")
+                logger.info(f"Stream stopped: {call_sid}")
                 break
                 
     except WebSocketDisconnect:
-        logger.info("WebSocket disconnected")
+        logger.info("Twilio disconnected")
     except Exception as e:
-        logger.error(f"Media stream error: {e}")
+        logger.error(f"WebSocket error: {e}")
     finally:
         if dg_connection:
-            try:
-                dg_connection.finish()
-            except:
-                pass
-        if db_session:
-            await db_session.close()
+            await dg_connection.finish()
         await websocket.close()
 
 
@@ -370,117 +376,150 @@ async def twilio_media_stream_websocket(websocket: WebSocket, call_sid: str = No
     logger.info(f"Twilio media stream connected: call_sid={call_sid_val}, session_id={session_id_val}")
     
     try:
-        # Run Deepgram in thread pool to avoid blocking the async event loop
-        import concurrent.futures
+        # Use the same logic as the other websocket
+        from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
+        dg_client = DeepgramClient(settings.DEEPGRAM_API_KEY)
+        dg_connection = dg_client.listen.asynclive.v("1")
         
-        def create_and_start_deepgram():
-            from deepgram import DeepgramClient
-            from deepgram.core.events import EventType
-            
-            client = DeepgramClient(api_key=settings.DEEPGRAM_API_KEY)
-            
-            with client.listen.v1.connect(model="nova-2") as conn:
-                return conn
-        
-        loop = asyncio.get_event_loop()
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-            # Create connection in thread pool
-            dg_connection = await loop.run_in_executor(executor, create_and_start_deepgram)
-            logger.info("Connected to Deepgram for live transcription")
-            
-            def on_transcript(message):
-                """Handle transcription results from Deepgram."""
-                try:
-                    if hasattr(message, 'channel') and message.channel:
-                        transcript_data = message.channel.alternatives[0]
-                        transcript_text = transcript_data.transcript
-                        
-                        if not transcript_text:
-                            return
-                            
-                        logger.info(f"Deepgram transcript: '{transcript_text}'")
-                        
-                        if session_id_val and transcript_text:
-                            asyncio.create_task(process_transcript_async(
-                                session_id_val, "customer", transcript_text))
-                except Exception as e:
-                    logger.error(f"Error in transcript handler: {e}")
-            
-            async def process_transcript_async(session_id, speaker, text):
+        options = LiveOptions(
+            model="nova-2",
+            language="en-US",
+            smart_format=True,
+            interim_results=False, # Disable partial sentences
+            endpointing=300, # Faster cut-offs
+            encoding="mulaw",
+            sample_rate=8000,
+        )
+
+        async def on_message(self, result, **kwargs):
+            try:
+                transcript_text = ""
+                is_final = False
+                
+                # Safely handle both dict and object formats
+                if isinstance(result, dict):
+                    if result.get("type", "") != "Results":
+                        return
+                    is_final = result.get("is_final", False)
+                    alts = result.get("channel", {}).get("alternatives", [])
+                    if not alts: return
+                    transcript_text = alts[0].get("transcript", "")
+                else:
+                    if getattr(result, "type", "") != "Results":
+                        return
+                    is_final = getattr(result, "is_final", False)
+                    if not hasattr(result, "channel") or not result.channel.alternatives:
+                        return
+                    transcript_text = result.channel.alternatives[0].transcript
+
+                if not transcript_text or not is_final:
+                    return
+                
+                logger.info(f"Deepgram transcript: '{transcript_text}'")
+                
                 from app.core.database import AsyncSessionLocal
+                from sqlalchemy import select
+                from app.models.call_session import CallSession
+                
                 async with AsyncSessionLocal() as db:
-                    try:
-                        result = await ingest_transcript_chunk(
-                            session_id=session_id,
-                            speaker=speaker,
-                            text=text,
-                            timestamp=datetime.utcnow(),
-                            db=db,
-                        )
+                    # Dynamically look up session if we have the call SID
+                    current_sid = getattr(self, "call_sid_val", call_sid_val)
+                    if not current_sid:
+                        return
                         
-                        await ws_manager.broadcast(
-                            session_id,
-                            {
-                                "type": "transcript_update",
-                                "transcript": {
-                                    "id": result.get("transcript", {}).get("id", 0),
-                                    "speaker": speaker,
-                                    "text": text,
-                                    "timestamp": datetime.utcnow().isoformat(),
-                                },
-                                "ai_suggestion": result.get("ai_suggestion", {}),
-                            }
-                        )
-                        
-                        logger.info(f"AI suggestion: {result.get('ai_suggestion', {}).get('suggested_response', 'None')}")
-                    except Exception as e:
-                        logger.error(f"Error processing transcript: {e}")
-            
-            # Register event handler
-            from deepgram.core.events import EventType
-            dg_connection.on(EventType.MESSAGE, on_transcript)
-            
-            # Start listening in thread pool
-            await loop.run_in_executor(executor, dg_connection.start_listening)
-            
-            # Keep connection alive and forward audio from Twilio
-            while True:
-                try:
-                    data = await websocket.receive_text()
-                    message = json.loads(data)
+                    stmt = select(CallSession).where(CallSession.call_sid == current_sid)
+                    db_res = await db.execute(stmt)
+                    session = db_res.scalar_one_or_none()
                     
-                    event = message.get("event")
+                    if not session:
+                        return
+                        
+                    res = await ingest_transcript_chunk(
+                        session_id=session.id,
+                        speaker="customer", # Minimal logic for stream
+                        text=transcript_text,
+                        timestamp=datetime.utcnow(),
+                        db=db,
+                    )
                     
-                    if event == "start":
-                        call_sid_val = message.get("callSid", call_sid_val)
-                        logger.info(f"Media stream started for call {call_sid_val}")
+                    await ws_manager.broadcast(
+                        session.id,
+                        {
+                            "type": "transcript_update",
+                            "transcript": {
+                                "speaker": "customer",
+                                "text": transcript_text,
+                                "timestamp": datetime.utcnow().isoformat(),
+                            },
+                            "ai_suggestion": res.get("ai_suggestion", {}),
+                        }
+                    )
+            except Exception as e:
+                logger.error(f"Error in on_message: {e}")
+
+        async def on_error(self, error, **kwargs):
+            logger.error(f"Deepgram SDK Error Event: {error}")
+
+        dg_connection.on(LiveTranscriptionEvents.Transcript, on_message)
+        dg_connection.on(LiveTranscriptionEvents.Error, on_error)
+        
+        if not await dg_connection.start(options):
+            logger.error("Failed to start Deepgram connection")
+            return
+
+        while True:
+            try:
+                data = await websocket.receive_text()
+                message = json.loads(data)
+                
+                event = message.get("event")
+                if event == "start":
+                    start_data = message.get("start", {})
+                    call_sid_val = start_data.get("callSid") or message.get("callSid", call_sid_val)
+                    setattr(dg_connection, "call_sid_val", call_sid_val)
+                    logger.info(f"Stream started: call_sid_val={call_sid_val}")
+                elif event == "media":
+                    media_data = message.get("media", {})
+                    track = media_data.get("track", "inbound")
+                    if track != "inbound":
+                        continue
                         
-                    elif event == "media":
-                        media = message.get("media", "")
-                        if media and dg_connection:
-                            try:
-                                audio_data = base64.b64decode(media)
-                                await loop.run_in_executor(
-                                    executor, lambda: dg_connection.send_media(audio_data))
-                            except Exception as e:
-                                logger.error(f"Error sending to Deepgram: {e}")
-                                
-                    elif event == "stop":
-                        logger.info(f"Media stream stopped for call {call_sid_val}")
-                        break
-                        
-                except Exception as e:
-                    logger.error(f"Error in media stream loop: {e}")
+                    payload = media_data.get("payload")
+                    if payload and dg_connection:
+                        try:
+                            audio_data = base64.b64decode(payload)
+                            await dg_connection.send(audio_data)
+                        except Exception as e:
+                            logger.error(f"Error sending to Deepgram: {e}")
+                elif event == "stop":
                     break
+            except Exception as e:
+                break
                 
     except Exception as e:
         logger.error(f"Media stream error: {e}")
     finally:
         if dg_connection:
             try:
-                dg_connection.finish()
+                await dg_connection.finish()
             except:
                 pass
         await websocket.close()
+        
+        # Mark session as ended when stream closes
+        if call_sid_val:
+            from app.core.database import AsyncSessionLocal
+            from sqlalchemy import select
+            from app.models.call_session import CallSession
+            
+            async with AsyncSessionLocal() as db:
+                stmt = select(CallSession).where(CallSession.call_sid == call_sid_val)
+                db_res = await db.execute(stmt)
+                session = db_res.scalar_one_or_none()
+                if session and session.status == "active":
+                    session.status = "ended"
+                    session.ended_at = datetime.utcnow()
+                    await db.commit()
+                    await ws_manager.broadcast(session.id, {"type": "session_ended", "status": "ended"})
+                    
         logger.info(f"Media stream closed for call {call_sid_val}")

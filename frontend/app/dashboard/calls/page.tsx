@@ -90,12 +90,13 @@ export default function CallsPage() {
                         </td>
                         <td className="px-6 py-4">
                           <span className={cn(
-                            "inline-flex px-2 py-1 rounded-full text-xs font-medium",
+                            "inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium",
                             session.status === "active" 
-                              ? "bg-emerald-600/10 text-emerald-600"
+                              ? "bg-red-500/10 text-red-500 border border-red-500/20"
                               : "bg-muted text-muted-foreground"
                           )}>
-                            {session.status}
+                            {session.status === "active" && <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />}
+                            {session.status === "active" ? "Live" : session.status}
                           </span>
                         </td>
                         <td className="px-6 py-4">

@@ -174,7 +174,10 @@ export default function DashboardPage() {
                     </p>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="text-xs text-emerald-600 font-medium">Active</p>
+                    <div className="flex items-center justify-end gap-1 mb-1">
+                      <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                      <p className="text-xs text-red-500 font-bold uppercase tracking-wider">Live</p>
+                    </div>
                     <p className="text-xs text-muted-foreground">
                       {formatRelativeTime(session.started_at)}
                     </p>
@@ -217,12 +220,13 @@ export default function DashboardPage() {
                 </div>
                 <div className="text-right shrink-0">
                   <span className={cn(
-                    "inline-flex px-2 py-1 rounded-full text-xs font-medium",
+                    "inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium",
                     session.status === "active" 
-                      ? "bg-emerald-600/10 text-emerald-600"
+                      ? "bg-red-500/10 text-red-500 border border-red-500/20"
                       : "bg-muted text-muted-foreground"
                   )}>
-                    {session.status}
+                    {session.status === "active" && <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />}
+                    {session.status === "active" ? "Live" : session.status}
                   </span>
                   <p className="text-xs text-muted-foreground mt-1">
                     {formatRelativeTime(session.started_at)}
