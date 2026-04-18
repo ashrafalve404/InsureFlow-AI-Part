@@ -1,0 +1,2 @@
+# Prevent Next.js from auto-modifying tsconfig on git pull on different OS
+tsconfig.json merge=ours
