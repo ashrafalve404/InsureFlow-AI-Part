@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -50,6 +50,11 @@ function LiveCallContent() {
   const [loading, setLoading] = useState(!!initialSessionId);
   const [manualInput, setManualInput] = useState("");
   const [activePanel, setActivePanel] = useState<"transcript" | "ai" | "crm">("transcript");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
   // Sync session ID with URL
   useEffect(() => {
@@ -57,6 +62,11 @@ function LiveCallContent() {
       setSessionId(initialSessionId);
     }
   }, [initialSessionId]);
+
+  // Auto-scroll when transcripts update
+  useEffect(() => {
+    scrollToBottom();
+  }, [transcripts]);
 
   // Handle WebSocket connection and subscriptions
   useEffect(() => {
@@ -294,6 +304,7 @@ function LiveCallContent() {
                     </div>
                   </div>
                 ))}
+                <div ref={messagesEndRef} />
               </>
             )}
           </div>

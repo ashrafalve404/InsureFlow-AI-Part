@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import WebSocket
 
-from app.api.routes import calls, health, sessions, suggestions, twilio, websocket, rag, crm
+from app.api.routes import calls, health, sessions, suggestions, twilio, websocket, rag, crm, settings as settings_router
 from app.core.config import settings
 from app.core.database import create_tables
 from app.core.logging import setup_logging
@@ -53,6 +53,7 @@ def create_app() -> FastAPI:
     app.include_router(twilio.router, prefix=settings.API_V1_PREFIX)
     app.include_router(rag.router, prefix=settings.API_V1_PREFIX)
     app.include_router(crm.router, prefix=settings.API_V1_PREFIX)
+    app.include_router(settings_router.router, prefix=settings.API_V1_PREFIX)
 
     # Add Twilio media stream WebSocket at root level (no API prefix)
     @app.websocket("/twilio-media-stream")

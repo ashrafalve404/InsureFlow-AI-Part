@@ -72,8 +72,13 @@ async def twilio_voice_webhook(
         )
         logger.info(f"Created session {session.id} for call {call_sid}")
     
-    # Get sales person number
-    sales_number = settings.SALES_PERSON_NUMBER or "+8801723343865"
+    # Get sales person number from DB or fallback
+    from app.models.system_setting import SystemSetting
+    result = await db.execute(
+        select(SystemSetting).where(SystemSetting.key == "SALES_PERSON_NUMBER")
+    )
+    setting = result.scalar_one_or_none()
+    sales_number = setting.value if setting else (settings.SALES_PERSON_NUMBER or "+8801723343865")
     
     # Get the base URL for WebSocket (favor the specific env var, then fallback)
     ws_base_url = os.environ.get("MEDIA_STREAM_WS_URL") or os.environ.get("MEDIA_STREAM_URL")
