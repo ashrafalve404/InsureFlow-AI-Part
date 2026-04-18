@@ -4,7 +4,7 @@ Transcript ingestion and retrieval endpoints.
 POST /api/transcripts                       — ingest a new transcript chunk
 GET  /api/calls/{session_id}/transcripts    — list all chunks for a session
 """
-from typing import Any, Optional, Union, List, Dict, Tuple
+from typing import Dict
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status

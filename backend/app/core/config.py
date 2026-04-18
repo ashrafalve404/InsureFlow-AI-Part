@@ -2,7 +2,7 @@
 Pydantic-based application configuration.
 All settings are loaded from environment variables / .env file.
 """
-from typing import Any, Optional, Union, List, Dict, Tuple
+from typing import Any
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict

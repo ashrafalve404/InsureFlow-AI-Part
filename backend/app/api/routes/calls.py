@@ -6,7 +6,7 @@ GET  /api/calls           — list all sessions (paginated)
 GET  /api/calls/{id}      — get session details
 POST /api/calls/{id}/end  — end a session and trigger post-call summary
 """
-from typing import Any, Optional, Union, List, Dict, Tuple
+from typing import Any, Optional, List
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -16,7 +16,6 @@ from app.core.database import get_db
 from app.schemas.call import (
     CallSessionListResponse,
     CallSessionResponse,
-    EndCallResponse,
     StartCallRequest,
 )
 from app.schemas.suggestion import PostCallSummaryResponse
@@ -121,3 +120,18 @@ async def end_call(
         "ended_at": session.ended_at,
         "summary": summary.model_dump(),
     }
+
+@router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_call(session_id: int, db: AsyncSession = Depends(get_db)):
+    """Hard delete a call session and all its associated data (transcripts, etc)."""
+    from app.models.call_session import CallSession
+    from sqlalchemy import select
+    result = await db.execute(select(CallSession).where(CallSession.id == session_id))
+    session = result.scalar_one_or_none()
+    
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    await db.delete(session)
+    await db.commit()
+    return None

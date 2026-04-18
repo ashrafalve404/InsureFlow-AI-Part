@@ -8,7 +8,7 @@ Design principles:
 - The OpenAI client is instantiated once (lazy singleton).
 """
 import logging
-from typing import Any, Optional, Union, List, Dict, Tuple, Any
+from typing import Any, Optional, List, Dict, Tuple
 
 from openai import AsyncOpenAI, APIError
 

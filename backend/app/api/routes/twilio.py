@@ -11,9 +11,10 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Request, status, WebSocket, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.core.database import get_db, AsyncSessionLocal
 from app.core.config import settings
@@ -22,6 +23,8 @@ from app.services import call_service
 from app.services.transcript_service_orchestrator import ingest_transcript_chunk
 from app.services.twilio_service import twilio_service
 from app.services.websocket_manager import ws_manager
+from app.models.call_session import CallSession
+from app.models.system_setting import SystemSetting
 
 logger = logging.getLogger(__name__)
 # IMPORTANT: Ensure the prefix is correct
@@ -73,28 +76,33 @@ async def twilio_voice_webhook(
         logger.info(f"Created session {session.id} for call {call_sid}")
     
     # Get sales person number from DB or fallback
-    from app.models.system_setting import SystemSetting
     result = await db.execute(
         select(SystemSetting).where(SystemSetting.key == "SALES_PERSON_NUMBER")
     )
     setting = result.scalar_one_or_none()
     sales_number = setting.value if setting else (settings.SALES_PERSON_NUMBER or "+8801723343865")
     
-    # Get the base URL for WebSocket (favor the specific env var, then fallback)
+    # Get the base URL for WebSocket (favor the specific env var, then fallback to current request host)
     ws_base_url = os.environ.get("MEDIA_STREAM_WS_URL") or os.environ.get("MEDIA_STREAM_URL")
+    
     if ws_base_url:
         # If it's a full URL, just get the base
         if ws_base_url.startswith("http"):
             ws_base_url = ws_base_url.replace("http", "ws", 1)
         if "/api/v1" in ws_base_url:
             ws_base_url = ws_base_url.split("/api/v1")[0]
+        # Ensure trailing slashes are gone
+        ws_base_url = ws_base_url.rstrip("/")
     else:
-        ws_base_url = "wss://sanded-paralyses-unstuffed.ngrok-free.dev"
+        # AUTO-DETECT: Use the host from the incoming Twilio request
+        host = request.headers.get("host")
+        scheme = "wss" if request.url.scheme == "https" else "ws"
+        ws_base_url = f"{scheme}://{host}"
+        logger.info(f"Auto-detected media stream base URL: {ws_base_url}")
 
-    stream_url = f"{ws_base_url}/twilio-media-stream?call_sid={call_sid}"
-    
-    # Robust TwiML with Streaming restored
-    stream_url = f"{ws_base_url}/twilio-media-stream?call_sid={call_sid}&amp;session_id={session.id if session else ''}"
+    # Build robust TwiML
+    session_id_val = session.id if session else (existing_session.id if existing_session else "")
+    stream_url = f"{ws_base_url}/twilio-media-stream?call_sid={call_sid}&session_id={session_id_val}"
     
     twiml_response = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -105,7 +113,7 @@ async def twilio_voice_webhook(
     <Dial callerId="{to_number}" timeout="30" answerOnBridge="true">
         <Number>{sales_number}</Number>
     </Dial>
-</Response>"""
+</Response>""".strip()
     
     logger.info(f"Generated TwiML:\n{twiml_response}")
     
@@ -422,10 +430,6 @@ async def twilio_media_stream_websocket(websocket: WebSocket, call_sid: str = No
                 
                 logger.info(f"Deepgram transcript: '{transcript_text}'")
                 
-                from app.core.database import AsyncSessionLocal
-                from sqlalchemy import select
-                from app.models.call_session import CallSession
-                
                 async with AsyncSessionLocal() as db:
                     # Dynamically look up session if we have the call SID
                     current_sid = getattr(self, "call_sid_val", call_sid_val)
@@ -513,10 +517,6 @@ async def twilio_media_stream_websocket(websocket: WebSocket, call_sid: str = No
         
         # Mark session as ended when stream closes
         if call_sid_val:
-            from app.core.database import AsyncSessionLocal
-            from sqlalchemy import select
-            from app.models.call_session import CallSession
-            
             async with AsyncSessionLocal() as db:
                 stmt = select(CallSession).where(CallSession.call_sid == call_sid_val)
                 db_res = await db.execute(stmt)

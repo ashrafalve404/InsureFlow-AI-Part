@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { getDashboardStats, getCalls } from "@/lib/api";
+import { getDashboardStats, getCalls, deleteCall } from "@/lib/api";
 import { formatRelativeTime, cn } from "@/lib/utils";
 import { CallSession, DashboardStats as DashboardStatsType } from "@/lib/types";
 import Link from "next/link";
@@ -13,7 +13,8 @@ import {
   TrendingUp,
   Users,
   ArrowRight,
-  Play
+  Play,
+  Trash2
 } from "lucide-react";
 
 export default function DashboardPage() {
@@ -70,6 +71,26 @@ export default function DashboardPage() {
     }
     fetchData();
   }, []);
+
+  const handleDeleteSession = async (e: React.MouseEvent, id: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (!confirm("Are you sure you want to delete this session?")) {
+      return;
+    }
+
+    try {
+      await deleteCall(id);
+      setSessions((prev) => prev.filter((s) => s.id !== id));
+      // Refresh stats if needed
+      const statsData = await getDashboardStats();
+      setStats(statsData);
+    } catch (error) {
+      console.error("Failed to delete session:", error);
+      alert("Failed to delete session.");
+    }
+  };
   
   const activeSessions = sessions.filter(s => s.status === "active");
   
@@ -204,35 +225,42 @@ export default function DashboardPage() {
             {sessions && sessions.length > 0 ? (
               <>
                 {sessions.slice(0, 5).map((session) => (
-              <Link
-                key={session.id}
-                href={`/dashboard/calls/${session.id}`}
-                className={cn(
-                  "flex items-center gap-3 lg:gap-4 p-3 lg:p-4 rounded-xl",
-                  "hover:bg-muted transition-colors"
-                )}
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm lg:text-base truncate">{session.customer_name}</p>
-                  <p className="text-xs lg:text-sm text-muted-foreground truncate">
-                    {session.agent_name}
-                  </p>
-                </div>
-                <div className="text-right shrink-0">
-                  <span className={cn(
-                    "inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium",
-                    session.status === "active" 
-                      ? "bg-red-500/10 text-red-500 border border-red-500/20"
-                      : "bg-muted text-muted-foreground"
-                  )}>
-                    {session.status === "active" && <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />}
-                    {session.status === "active" ? "Live" : session.status}
-                  </span>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {formatRelativeTime(session.started_at)}
-                  </p>
-                </div>
-              </Link>
+                <Link
+                  key={session.id}
+                  href={`/dashboard/live?id=${session.id}`}
+                  className={cn(
+                    "flex items-center gap-3 lg:gap-4 p-3 lg:p-4 rounded-xl group relative",
+                    "hover:bg-muted transition-colors border border-transparent hover:border-border"
+                  )}
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm lg:text-base truncate group-hover:pr-10 transition-all">{session.customer_name}</p>
+                    <p className="text-xs lg:text-sm text-muted-foreground truncate">
+                      {session.agent_name}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className={cn(
+                      "inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium",
+                      session.status === "active" 
+                        ? "bg-red-500/10 text-red-500 border border-red-500/20"
+                        : "bg-muted text-muted-foreground"
+                    )}>
+                      {session.status === "active" && <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />}
+                      {session.status === "active" ? "Live" : session.status}
+                    </span>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {formatRelativeTime(session.started_at)}
+                    </p>
+                  </div>
+                  <button
+                    onClick={(e) => handleDeleteSession(e, session.id)}
+                    className="absolute right-4 opacity-0 group-hover:opacity-100 p-2 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+                    title="Delete Session"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </Link>
               ))}
               </>
             ) : (

@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { getCalls } from "@/lib/api";
+import { getCalls, deleteCall } from "@/lib/api";
 import { formatRelativeTime, cn } from "@/lib/utils";
 import { CallSession } from "@/lib/types";
 import Link from "next/link";
-import { Phone, Users, Clock, ArrowRight } from "lucide-react";
+import { Phone, Users, Clock, ArrowRight, Trash2 } from "lucide-react";
 
 export default function CallsPage() {
   const pathname = "/dashboard/calls";
@@ -26,6 +26,20 @@ export default function CallsPage() {
     }
     fetchCalls();
   }, []);
+
+  const handleDeleteSession = async (id: number) => {
+    if (!confirm("Are you sure you want to delete this session? This will remove all transcripts and AI suggestions permanently.")) {
+      return;
+    }
+
+    try {
+      await deleteCall(id);
+      setSessions((prev) => prev.filter((s) => s.id !== id));
+    } catch (error) {
+      console.error("Failed to delete session:", error);
+      alert("Failed to delete session.");
+    }
+  };
   
   return (
     <DashboardLayout pathname={pathname}>
@@ -105,12 +119,21 @@ export default function CallsPage() {
                           </p>
                         </td>
                         <td className="px-6 py-4">
-                          <Link 
-                            href={`/dashboard/live?id=${session.id}`}
-                            className="inline-flex items-center gap-1 text-sm text-primary hover:text-primary/80 font-medium"
-                          >
-                            View <ArrowRight className="w-4 h-4" />
-                          </Link>
+                          <div className="flex items-center gap-4">
+                            <Link 
+                              href={`/dashboard/live?id=${session.id}`}
+                              className="inline-flex items-center gap-1 text-sm text-primary hover:text-primary/80 font-medium"
+                            >
+                              View <ArrowRight className="w-4 h-4" />
+                            </Link>
+                            <button
+                              onClick={() => handleDeleteSession(session.id)}
+                              className="p-1.5 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
+                              title="Delete Session"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
