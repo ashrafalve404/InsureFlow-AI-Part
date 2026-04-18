@@ -100,9 +100,12 @@ async def twilio_voice_webhook(
         ws_base_url = f"{scheme}://{host}"
         logger.info(f"Auto-detected media stream base URL: {ws_base_url}")
 
-    # Build robust TwiML
+    # Build robust TwiML with StatusCallback to ensure session ends
     session_id_val = session.id if session else (existing_session.id if existing_session else "")
     stream_url = f"{ws_base_url}/twilio-media-stream?call_sid={call_sid}&session_id={session_id_val}"
+    
+    # We use the same base URL for status callbacks
+    status_callback_url = f"{request.url.scheme}://{request.url.netloc}{settings.API_V1_PREFIX}/twilio/webhook"
     
     twiml_response = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -110,13 +113,12 @@ async def twilio_voice_webhook(
     <Start>
         <Stream url="{stream_url}" track="inbound_track" />
     </Start>
-    <Dial callerId="{to_number}" timeout="30" answerOnBridge="true">
+    <Dial callerId="{to_number}" timeout="30" answerOnBridge="true" statusCallback="{status_callback_url}" statusCallbackEvent="completed">
         <Number>{sales_number}</Number>
     </Dial>
 </Response>""".strip()
     
-    logger.info(f"Generated TwiML:\n{twiml_response}")
-    
+    logger.info(f"Generated TwiML with status callback: {status_callback_url}")
     return PlainTextResponse(content=twiml_response, media_type="application/xml")
     
 
@@ -165,7 +167,7 @@ async def twilio_webhook(
         
         if session and session.status == "active":
             session.status = "ended"
-            session.ended_at = datetime.utcnow()
+            session.ended_at = datetime.now(timezone.utc).replace(tzinfo=None) # Keep SQLite friendly
             await db.commit()
             await ws_manager.broadcast(session.id, {"type": "session_ended", "status": "ended"})
 
