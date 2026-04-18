@@ -85,6 +85,9 @@ async def run_ingest() -> IngestResult:
     doc_type_map = {
         "Sales Knowledge.docx": "sales",
         "The Chat Workflow.docx": "general",
+        "Clinch_Website_Copy_Optimization .docx": "general",
+        "Life_Insurance_Sales_Training_Compendium.docx": "sales",
+        "Life_Insurance_Voice_AI_Training_Manual.docx": "general",
     }
     
     all_chunks = chunker.chunk_texts(cleaned_docs, doc_type_map=doc_type_map)
