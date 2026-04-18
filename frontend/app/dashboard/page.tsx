@@ -16,12 +16,18 @@ import {
   Play,
   Trash2
 } from "lucide-react";
+import { DeleteConfirmModal } from "@/components/modals/delete-confirm-modal";
 
 export default function DashboardPage() {
   const pathname = "/dashboard";
   const [stats, setStats] = useState<DashboardStatsType | null>(null);
   const [sessions, setSessions] = useState<CallSession[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [sessionToDelete, setSessionToDelete] = useState<number | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const statsConfig = stats ? [
   {
@@ -72,24 +78,33 @@ export default function DashboardPage() {
     fetchData();
   }, []);
 
-  const handleDeleteSession = async (e: React.MouseEvent, id: number) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    if (!confirm("Are you sure you want to delete this session?")) {
-      return;
-    }
+  const handleDeleteSession = async () => {
+    if (!sessionToDelete) return;
 
+    setIsDeleting(true);
     try {
-      await deleteCall(id);
-      setSessions((prev) => prev.filter((s) => s.id !== id));
-      // Refresh stats if needed
+      await deleteCall(sessionToDelete);
+      setSessions((prev) => prev.filter((s) => s.id !== sessionToDelete));
+      
+      // Refresh stats
       const statsData = await getDashboardStats();
       setStats(statsData);
+      
+      setIsModalOpen(false);
     } catch (error) {
       console.error("Failed to delete session:", error);
       alert("Failed to delete session.");
+    } finally {
+      setIsDeleting(false);
+      setSessionToDelete(null);
     }
+  };
+
+  const openDeleteModal = (e: React.MouseEvent, id: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSessionToDelete(id);
+    setIsModalOpen(true);
   };
   
   const activeSessions = sessions.filter(s => s.status === "active");
@@ -254,7 +269,7 @@ export default function DashboardPage() {
                     </p>
                   </div>
                   <button
-                    onClick={(e) => handleDeleteSession(e, session.id)}
+                    onClick={(e) => openDeleteModal(e, session.id)}
                     className="absolute right-4 opacity-0 group-hover:opacity-100 p-2 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
                     title="Delete Session"
                   >
@@ -269,6 +284,13 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      <DeleteConfirmModal 
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onConfirm={handleDeleteSession}
+        loading={isDeleting}
+      />
     </DashboardLayout>
   );
 }

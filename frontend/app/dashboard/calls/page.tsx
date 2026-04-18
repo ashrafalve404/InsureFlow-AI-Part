@@ -7,11 +7,17 @@ import { formatRelativeTime, cn } from "@/lib/utils";
 import { CallSession } from "@/lib/types";
 import Link from "next/link";
 import { Phone, Users, Clock, ArrowRight, Trash2 } from "lucide-react";
+import { DeleteConfirmModal } from "@/components/modals/delete-confirm-modal";
 
 export default function CallsPage() {
   const pathname = "/dashboard/calls";
   const [sessions, setSessions] = useState<CallSession[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [sessionToDelete, setSessionToDelete] = useState<number | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     async function fetchCalls() {
@@ -27,18 +33,26 @@ export default function CallsPage() {
     fetchCalls();
   }, []);
 
-  const handleDeleteSession = async (id: number) => {
-    if (!confirm("Are you sure you want to delete this session? This will remove all transcripts and AI suggestions permanently.")) {
-      return;
-    }
+  const handleDeleteSession = async () => {
+    if (!sessionToDelete) return;
 
+    setIsDeleting(true);
     try {
-      await deleteCall(id);
-      setSessions((prev) => prev.filter((s) => s.id !== id));
+      await deleteCall(sessionToDelete);
+      setSessions((prev) => prev.filter((s) => s.id !== sessionToDelete));
+      setIsModalOpen(false);
     } catch (error) {
       console.error("Failed to delete session:", error);
       alert("Failed to delete session.");
+    } finally {
+      setIsDeleting(false);
+      setSessionToDelete(null);
     }
+  };
+
+  const openDeleteModal = (id: number) => {
+    setSessionToDelete(id);
+    setIsModalOpen(true);
   };
   
   return (
@@ -127,7 +141,7 @@ export default function CallsPage() {
                               View <ArrowRight className="w-4 h-4" />
                             </Link>
                             <button
-                              onClick={() => handleDeleteSession(session.id)}
+                              onClick={() => openDeleteModal(session.id)}
                               className="p-1.5 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
                               title="Delete Session"
                             >
@@ -144,6 +158,13 @@ export default function CallsPage() {
           </div>
         </div>
       </div>
+
+      <DeleteConfirmModal 
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onConfirm={handleDeleteSession}
+        loading={isDeleting}
+      />
     </DashboardLayout>
   );
 }

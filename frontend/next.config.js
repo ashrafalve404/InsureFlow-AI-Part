@@ -6,6 +6,9 @@ const nextConfig = {
     NEXT_PUBLIC_WS_URL: process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000",
     NEXT_PUBLIC_DEMO_MODE: process.env.NEXT_PUBLIC_DEMO_MODE || "false",
   },
+  eslint: {
+    dirs: ["app", "components", "lib"],
+  },
 };
 
 module.exports = nextConfig;
