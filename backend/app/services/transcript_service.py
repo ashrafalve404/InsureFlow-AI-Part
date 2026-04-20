@@ -22,6 +22,10 @@ async def store_chunk(
     db: AsyncSession,
 ) -> TranscriptChunk:
     """Persist a single transcript utterance."""
+    # Ensure timestamp is naive UTC for DB compatibility
+    if timestamp and timestamp.tzinfo is not None:
+        timestamp = timestamp.replace(tzinfo=None)
+
     chunk = TranscriptChunk(
         session_id=session_id,
         speaker=speaker,
