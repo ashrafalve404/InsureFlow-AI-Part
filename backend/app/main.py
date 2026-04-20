@@ -38,7 +38,11 @@ def create_app() -> FastAPI:
     # Allow CORS for dashboard UI
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # In production, specify explicit domains
+        allow_origins=[
+            "https://insureflowai.vercel.app",
+            "http://localhost:3000",
+            "http://localhost:8000"
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
