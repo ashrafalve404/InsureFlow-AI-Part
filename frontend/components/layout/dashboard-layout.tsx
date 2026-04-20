@@ -15,8 +15,7 @@ import {
   Sun,
   Menu,
   X,
-  Headphones,
-  LogOut
+  Headphones
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -36,12 +35,6 @@ const secondaryNav = [
 export function DashboardLayout({ children, pathname }: { children: React.ReactNode; pathname?: string }) {
   const { theme, toggleTheme } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const handleLogout = () => {
-    localStorage.removeItem("isLoggedIn");
-    localStorage.removeItem("user");
-    window.location.href = "/login";
-  };
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -126,13 +119,6 @@ export function DashboardLayout({ children, pathname }: { children: React.ReactN
               <p className="text-sm font-medium truncate">Sarah Agent</p>
               <p className="text-xs text-muted-foreground truncate">Agent</p>
             </div>
-            <button 
-              onClick={handleLogout}
-              className="p-1.5 rounded-lg text-muted-foreground hover:bg-red-500/10 hover:text-red-500 transition-colors"
-              title="Log Out"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
           </div>
         </div>
       </aside>
