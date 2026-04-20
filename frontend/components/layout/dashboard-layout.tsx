@@ -15,7 +15,8 @@ import {
   Sun,
   Menu,
   X,
-  Headphones
+  Headphones,
+  LogOut
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -109,17 +110,27 @@ export function DashboardLayout({ children, pathname }: { children: React.ReactN
           </div>
         </nav>
 
-        {/* Footer */}
-        <div className="p-4 border-t border-border">
+        {/* Footer with Logout */}
+        <div className="p-4 border-t border-border space-y-2">
           <div className="flex items-center gap-3 px-3 py-2">
-            <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-sm font-medium shrink-0">
-              SA
+            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-sm font-medium shrink-0">
+              AD
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">Sarah Agent</p>
-              <p className="text-xs text-muted-foreground truncate">Agent</p>
+              <p className="text-sm font-medium truncate text-foreground">Admin User</p>
+              <p className="text-xs text-muted-foreground truncate">Super Admin</p>
             </div>
           </div>
+          <button
+            onClick={() => {
+              document.cookie = "auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+              window.location.href = "/login";
+            }}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-red-500 hover:bg-red-500/10 transition-colors"
+          >
+            <LogOut className="w-5 h-5 shrink-0" />
+            <span>Log out</span>
+          </button>
         </div>
       </aside>
 

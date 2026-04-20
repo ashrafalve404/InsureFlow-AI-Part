@@ -21,8 +21,8 @@ export default function LoginPage() {
     await new Promise(resolve => setTimeout(resolve, 800));
 
     if (username === "admin" && password === "admin@123") {
-      // Set a simple cookie for middleware to check
-      document.cookie = "auth_token=authenticated; path=/; max-age=86400; SameSite=Strict";
+      // Set session for 30 days
+      document.cookie = "auth_token=authenticated; path=/; max-age=2592000; SameSite=Strict";
       router.push("/dashboard");
     } else {
       setError("Invalid username or password");
